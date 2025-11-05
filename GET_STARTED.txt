@@ -1,0 +1,123 @@
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║                  ☁️  WELCOME TO STRATUS                       ║
+║          Command your microservices from the edge            ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+
+🚀 QUICK START (60 seconds)
+═══════════════════════════════════════════════════════════════
+
+For macOS/Linux:
+----------------
+1. Run setup:     ./setup.sh
+2. Start:         docker-compose up
+3. Open browser:  http://localhost:3000
+
+For Windows:
+------------
+1. Run setup:     powershell -ExecutionPolicy Bypass -File setup.ps1
+2. Start:         docker-compose up
+3. Open browser:  http://localhost:3000
+
+
+📖 DOCUMENTATION
+═══════════════════════════════════════════════════════════════
+
+README.md           → Complete project documentation
+QUICKSTART.md       → 5-minute getting started guide
+ARCHITECTURE.md     → System architecture deep dive
+PROJECT_SUMMARY.md  → Project overview and highlights
+CONTRIBUTING.md     → How to contribute
+
+
+🎯 WHAT YOU GET
+═══════════════════════════════════════════════════════════════
+
+✅ Full-stack microservices control plane
+✅ Go backend with REST API & WebSocket
+✅ Next.js frontend with real-time updates
+✅ PostgreSQL + Redis database layer
+✅ Docker containerization
+✅ Production-ready architecture
+
+
+🛠️ DEVELOPMENT COMMANDS
+═══════════════════════════════════════════════════════════════
+
+make help       → Show all available commands
+make install    → Install dependencies
+make dev        → Run in development mode
+make up         → Start all services
+make down       → Stop all services
+make logs       → View service logs
+make clean      → Clean build artifacts
+make test       → Run tests
+
+
+📊 SERVICES & PORTS
+═══════════════════════════════════════════════════════════════
+
+Frontend:    http://localhost:3000
+Backend API: http://localhost:8080
+PostgreSQL:  localhost:5432
+Redis:       localhost:6379
+
+WebSocket:   ws://localhost:8080/ws
+Health:      http://localhost:8080/health
+
+
+🎨 TECH STACK
+═══════════════════════════════════════════════════════════════
+
+Backend:     Go 1.21 + Gin Framework
+Frontend:    Next.js 14 + TypeScript
+Database:    PostgreSQL 16 + Redis 7
+Container:   Docker + Docker Compose
+Styling:     TailwindCSS 3
+
+
+💡 FIRST STEPS AFTER STARTING
+═══════════════════════════════════════════════════════════════
+
+1. Click "Create Service" button
+2. Fill in:
+   - Name: my-first-service
+   - Region: US-East
+   - Image: nginx:alpine
+   - Version: 1.0.0
+3. Click "Start" to see real-time updates!
+
+
+🐛 TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════
+
+Port in use?
+  → docker-compose down
+  → Change ports in docker-compose.yml
+
+Docker not starting?
+  → Make sure Docker Desktop is running
+  → docker info (should show system info)
+
+Can't connect to backend?
+  → Check .env files exist
+  → Restart: docker-compose restart
+
+
+📞 NEED HELP?
+═══════════════════════════════════════════════════════════════
+
+Read the docs:    README.md
+Quick start:      QUICKSTART.md
+Report issues:    GitHub Issues
+Architecture:     ARCHITECTURE.md
+
+
+═══════════════════════════════════════════════════════════════
+
+Built with ❤️ for the edge
+Version: 1.0.0
+License: MIT
+
+Happy coding! ☁️
