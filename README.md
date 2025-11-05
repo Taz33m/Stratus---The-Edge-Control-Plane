@@ -35,10 +35,29 @@ Stratus is an open-source microservices control plane and dashboard designed to 
 
 ## Architecture
 
-**Frontend** → Next.js 14, TypeScript, Carbon Design  
-**Backend** → Go 1.21, Gin, WebSocket Hub  
-**Data** → PostgreSQL 16, Redis 7  
-**Deploy** → Docker Compose
+```
+┌────────────────────────────┐
+│   Next.js 14 Frontend      │
+│   Carbon Design System     │
+└─────────────┬──────────────┘
+              │ REST / WebSocket
+              ▼
+┌─────────────────────────────┐
+│      Go Backend (Gin)       │
+│   • Service Registry        │
+│   • WebSocket Hub           │
+│   • Metrics Engine          │
+└──────────────┬──────────────┘
+               │
+     ┌─────────┴─────────┐
+     ▼                   ▼
+┌──────────┐      ┌────────────┐
+│PostgreSQL│      │   Redis    │
+│ Services │      │  Metrics   │
+└──────────┘      └────────────┘
+```
+
+**Stack:** Next.js 14 • Go 1.21 • PostgreSQL 16 • Redis 7 • Docker Compose
 
 ## Quick Start
 
@@ -51,15 +70,36 @@ docker-compose up --build
 Access dashboard at `http://localhost:3000`  
 API available at `http://localhost:8080`
 
-## API
+## API Endpoints
 
-**REST Endpoints**
-- `GET/POST /api/v1/services` — Service CRUD operations
-- `GET /api/v1/metrics/:id` — Real-time service metrics
-- `GET /api/v1/logs/deployment` — Deployment audit trail
+### Services
 
-**WebSocket**
-- `ws://localhost:8080/ws` — Live status updates
+| Method | Endpoint                | Description              |
+|--------|------------------------|--------------------------|
+| GET    | `/api/v1/services`     | List all services        |
+| POST   | `/api/v1/services`     | Create new service       |
+| GET    | `/api/v1/services/:id` | Get service details      |
+| PATCH  | `/api/v1/services/:id` | Update service status    |
+| DELETE | `/api/v1/services/:id` | Delete service           |
+
+### Metrics
+
+| Method | Endpoint                      | Description              |
+|--------|------------------------------|--------------------------|
+| GET    | `/api/v1/metrics/:id`        | Get service metrics      |
+| GET    | `/api/v1/metrics/aggregated` | Get aggregated metrics   |
+
+### Logs
+
+| Method | Endpoint                    | Description              |
+|--------|----------------------------|--------------------------|
+| GET    | `/api/v1/logs/deployment`  | Get deployment logs      |
+
+### WebSocket
+
+**Endpoint:** `ws://localhost:8080/ws`
+
+Real-time updates for service status, metrics, and deployment events.
 
 ## Configuration
 
