@@ -17,11 +17,13 @@ Stratus is an open-source microservices control plane and dashboard designed to 
 
 ### 🎥 Demo Video
 
-<video src="./stratus.mp4" width="100%" controls>
-  Your browser does not support the video tag.
+<video width="100%" controls>
+  <source src="https://raw.githubusercontent.com/Taz33m/Stratus---The-Edge-Control-Plane/main/stratus.mp4" type="video/mp4" />
+  Your browser does not support the video tag. You can
+  <a href="https://raw.githubusercontent.com/Taz33m/Stratus---The-Edge-Control-Plane/main/stratus.mp4">download the demo here</a>.
 </video>
 
-*[Download Demo Video](./stratus.mp4)*
+*[Download Demo Video](https://raw.githubusercontent.com/Taz33m/Stratus---The-Edge-Control-Plane/main/stratus.mp4)*
 
 </div>
 
