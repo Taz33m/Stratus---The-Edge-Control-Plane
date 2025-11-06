@@ -1,25 +1,32 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/stratus/backend/internal/errors"
 	"github.com/stratus/backend/internal/models"
+	"github.com/stratus/backend/internal/validation"
 	"github.com/stratus/backend/internal/websocket"
 )
 
 type ServiceHandler struct {
-	db  *sql.DB
-	hub *websocket.Hub
+	db      *sql.DB
+	hub     *websocket.Hub
+	metrics *MetricsHandler
 }
 
-func NewServiceHandler(db *sql.DB, hub *websocket.Hub) *ServiceHandler {
+func NewServiceHandler(db *sql.DB, hub *websocket.Hub, metrics *MetricsHandler) *ServiceHandler {
 	return &ServiceHandler{
-		db:  db,
-		hub: hub,
+		db:      db,
+		hub:     hub,
+		metrics: metrics,
 	}
 }
 
@@ -27,26 +34,49 @@ func (h *ServiceHandler) ListServices(c *gin.Context) {
 	region := c.Query("region")
 	status := c.Query("status")
 
+	// Pagination
+	limit := 50
+	offset := 0
+	if limitParam := c.Query("limit"); limitParam != "" {
+		if l, err := fmt.Sscanf(limitParam, "%d", &limit); err == nil && l == 1 && limit > 0 && limit <= 100 {
+			// Valid limit
+		} else {
+			limit = 50
+		}
+	}
+	if offsetParam := c.Query("offset"); offsetParam != "" {
+		if o, err := fmt.Sscanf(offsetParam, "%d", &offset); err == nil && o == 1 && offset >= 0 {
+			// Valid offset
+		} else {
+			offset = 0
+		}
+	}
+
 	query := "SELECT id, name, region, image, version, status, uptime, created_at, updated_at FROM services WHERE 1=1"
 	args := []interface{}{}
 	argCount := 1
 
 	if region != "" {
-		query += " AND region = $" + string(rune(argCount+'0'))
+		query += fmt.Sprintf(" AND region = $%d", argCount)
 		args = append(args, region)
 		argCount++
 	}
 
 	if status != "" {
-		query += " AND status = $" + string(rune(argCount+'0'))
+		query += fmt.Sprintf(" AND status = $%d", argCount)
 		args = append(args, status)
 	}
 
 	query += " ORDER BY created_at DESC"
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount, argCount+1)
+	args = append(args, limit, offset)
 
-	rows, err := h.db.Query(query, args...)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	rows, err := h.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errors.InternalError(c, "Failed to query services")
 		return
 	}
 	defer rows.Close()
@@ -55,7 +85,7 @@ func (h *ServiceHandler) ListServices(c *gin.Context) {
 	for rows.Next() {
 		var s models.Service
 		if err := rows.Scan(&s.ID, &s.Name, &s.Region, &s.Image, &s.Version, &s.Status, &s.Uptime, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			errors.InternalError(c, "Failed to scan service")
 			return
 		}
 		services = append(services, s)
@@ -67,18 +97,21 @@ func (h *ServiceHandler) ListServices(c *gin.Context) {
 func (h *ServiceHandler) GetService(c *gin.Context) {
 	id := c.Param("id")
 
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
 	var s models.Service
-	err := h.db.QueryRow(
+	err := h.db.QueryRowContext(ctx,
 		"SELECT id, name, region, image, version, status, uptime, created_at, updated_at FROM services WHERE id = $1",
 		id,
 	).Scan(&s.ID, &s.Name, &s.Region, &s.Image, &s.Version, &s.Status, &s.Uptime, &s.CreatedAt, &s.UpdatedAt)
 
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Service not found"})
+		errors.NotFound(c, "Service")
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errors.InternalError(c, "Failed to get service")
 		return
 	}
 
@@ -88,7 +121,26 @@ func (h *ServiceHandler) GetService(c *gin.Context) {
 func (h *ServiceHandler) CreateService(c *gin.Context) {
 	var req models.CreateServiceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		errors.BadRequest(c, "Invalid request body", err.Error())
+		return
+	}
+
+	// Validate input
+	var validationErrs validation.ValidationErrors
+	if err := validation.ValidateServiceName(req.Name); err != nil {
+		validationErrs = append(validationErrs, err.(validation.ValidationError))
+	}
+	if err := validation.ValidateRegion(req.Region); err != nil {
+		validationErrs = append(validationErrs, err.(validation.ValidationError))
+	}
+	if err := validation.ValidateImage(req.Image); err != nil {
+		validationErrs = append(validationErrs, err.(validation.ValidationError))
+	}
+	if err := validation.ValidateVersion(req.Version); err != nil {
+		validationErrs = append(validationErrs, err.(validation.ValidationError))
+	}
+	if len(validationErrs) > 0 {
+		errors.BadRequest(c, "Validation failed", validationErrs)
 		return
 	}
 
@@ -104,14 +156,17 @@ func (h *ServiceHandler) CreateService(c *gin.Context) {
 		UpdatedAt: time.Now(),
 	}
 
-	_, err := h.db.Exec(
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	_, err := h.db.ExecContext(ctx,
 		`INSERT INTO services (id, name, region, image, version, status, uptime, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		service.ID, service.Name, service.Region, service.Image, service.Version, service.Status, service.Uptime, service.CreatedAt, service.UpdatedAt,
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errors.InternalError(c, "Failed to create service")
 		return
 	}
 
@@ -121,6 +176,9 @@ func (h *ServiceHandler) CreateService(c *gin.Context) {
 	// Create deployment log
 	h.createDeploymentLog(service.ID, "create", "success", "Service created successfully")
 
+	// Start metrics simulator for new service
+	h.metrics.StartSimulator(service.ID)
+
 	c.JSON(http.StatusCreated, service)
 }
 
@@ -129,8 +187,16 @@ func (h *ServiceHandler) UpdateService(c *gin.Context) {
 
 	var req models.UpdateServiceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		errors.BadRequest(c, "Invalid request body", err.Error())
 		return
+	}
+
+	// Validate version if provided
+	if req.Version != nil {
+		if err := validation.ValidateVersion(*req.Version); err != nil {
+			errors.BadRequest(c, "Validation failed", err)
+			return
+		}
 	}
 
 	// Build update query dynamically
@@ -139,52 +205,48 @@ func (h *ServiceHandler) UpdateService(c *gin.Context) {
 	argCount := 1
 
 	if req.Status != nil {
-		updates = append(updates, "status = $"+string(rune(argCount+'0')))
+		updates = append(updates, fmt.Sprintf("status = $%d", argCount))
 		args = append(args, *req.Status)
 		argCount++
 	}
 
 	if req.Version != nil {
-		updates = append(updates, "version = $"+string(rune(argCount+'0')))
+		updates = append(updates, fmt.Sprintf("version = $%d", argCount))
 		args = append(args, *req.Version)
 		argCount++
 	}
 
 	if len(updates) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
+		errors.BadRequest(c, "No fields to update", nil)
 		return
 	}
 
-	updates = append(updates, "updated_at = $"+string(rune(argCount+'0')))
+	updates = append(updates, fmt.Sprintf("updated_at = $%d", argCount))
 	args = append(args, time.Now())
 	argCount++
 
 	args = append(args, id)
 
-	query := "UPDATE services SET "
-	for i, update := range updates {
-		if i > 0 {
-			query += ", "
-		}
-		query += update
-	}
-	query += " WHERE id = $" + string(rune(argCount+'0'))
+	query := "UPDATE services SET " + strings.Join(updates, ", ") + fmt.Sprintf(" WHERE id = $%d", argCount)
 
-	result, err := h.db.Exec(query, args...)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	result, err := h.db.ExecContext(ctx, query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errors.InternalError(c, "Failed to update service")
 		return
 	}
 
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Service not found"})
+		errors.NotFound(c, "Service")
 		return
 	}
 
 	// Fetch updated service
 	var service models.Service
-	h.db.QueryRow(
+	h.db.QueryRowContext(ctx,
 		"SELECT id, name, region, image, version, status, uptime, created_at, updated_at FROM services WHERE id = $1",
 		id,
 	).Scan(&service.ID, &service.Name, &service.Region, &service.Image, &service.Version, &service.Status, &service.Uptime, &service.CreatedAt, &service.UpdatedAt)
@@ -197,8 +259,12 @@ func (h *ServiceHandler) UpdateService(c *gin.Context) {
 		switch *req.Status {
 		case models.StatusRunning:
 			action = "start"
+			// Start metrics simulator when service starts
+			h.metrics.StartSimulator(id)
 		case models.StatusStopped:
 			action = "stop"
+			// Stop metrics simulator when service stops
+			h.metrics.StopSimulator(id)
 		}
 	}
 
@@ -210,17 +276,23 @@ func (h *ServiceHandler) UpdateService(c *gin.Context) {
 func (h *ServiceHandler) DeleteService(c *gin.Context) {
 	id := c.Param("id")
 
-	result, err := h.db.Exec("DELETE FROM services WHERE id = $1", id)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	result, err := h.db.ExecContext(ctx, "DELETE FROM services WHERE id = $1", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errors.InternalError(c, "Failed to delete service")
 		return
 	}
 
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Service not found"})
+		errors.NotFound(c, "Service")
 		return
 	}
+
+	// Stop metrics simulator
+	h.metrics.StopSimulator(id)
 
 	h.hub.Broadcast(websocket.MessageTypeServiceUpdate, gin.H{
 		"id":     id,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,14 +15,17 @@ import (
 )
 
 type MetricsHandler struct {
-	redis *redis.Client
-	hub   *websocket.Hub
+	redis      *redis.Client
+	hub        *websocket.Hub
+	simulators map[string]context.CancelFunc
+	mu         sync.RWMutex
 }
 
 func NewMetricsHandler(redisClient *redis.Client, hub *websocket.Hub) *MetricsHandler {
 	return &MetricsHandler{
-		redis: redisClient,
-		hub:   hub,
+		redis:      redisClient,
+		hub:        hub,
+		simulators: make(map[string]context.CancelFunc),
 	}
 }
 
@@ -49,31 +53,61 @@ func (h *MetricsHandler) GetMetrics(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"metrics": metrics})
 }
 
-func (h *MetricsHandler) SimulateMetrics(serviceID string) {
-	ctx := context.Background()
-	key := "metrics:" + serviceID
+// StartSimulator starts metrics simulation for a service
+func (h *MetricsHandler) StartSimulator(serviceID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
+	// Stop existing simulator if any
+	if cancel, exists := h.simulators[serviceID]; exists {
+		cancel()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	h.simulators[serviceID] = cancel
+
+	go h.simulateMetrics(ctx, serviceID)
+}
+
+// StopSimulator stops metrics simulation for a service
+func (h *MetricsHandler) StopSimulator(serviceID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if cancel, exists := h.simulators[serviceID]; exists {
+		cancel()
+		delete(h.simulators, serviceID)
+	}
+}
+
+func (h *MetricsHandler) simulateMetrics(ctx context.Context, serviceID string) {
+	key := "metrics:" + serviceID
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		metrics := models.ServiceMetrics{
-			ServiceID:    serviceID,
-			Timestamp:    time.Now(),
-			CPUUsage:     rand.Float64() * 80,          // 0-80%
-			MemoryUsage:  rand.Float64()*500 + 100,     // 100-600 MB
-			RequestCount: rand.Int63n(10000),           // 0-10k requests
-			ErrorRate:    rand.Float64() * 5,           // 0-5%
-			P95Latency:   rand.Float64()*200 + 50,      // 50-250ms
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			metrics := models.ServiceMetrics{
+				ServiceID:    serviceID,
+				Timestamp:    time.Now(),
+				CPUUsage:     rand.Float64() * 80,          // 0-80%
+				MemoryUsage:  rand.Float64()*500 + 100,     // 100-600 MB (actual MB, not %)
+				RequestCount: rand.Int63n(1000),            // Total requests in this interval
+				ErrorRate:    rand.Float64() * 5,           // 0-5%
+				P95Latency:   rand.Float64()*200 + 50,      // 50-250ms
+			}
+
+			data, _ := json.Marshal(metrics)
+			h.redis.LPush(ctx, key, data)
+			h.redis.LTrim(ctx, key, 0, 99) // Keep last 100 metrics
+			h.redis.Expire(ctx, key, 24*time.Hour)
+
+			// Broadcast metrics
+			h.hub.BroadcastJSON(websocket.MessageTypeMetrics, metrics)
 		}
-
-		data, _ := json.Marshal(metrics)
-		h.redis.LPush(ctx, key, data)
-		h.redis.LTrim(ctx, key, 0, 99) // Keep last 100 metrics
-		h.redis.Expire(ctx, key, 24*time.Hour)
-
-		// Broadcast metrics
-		h.hub.BroadcastJSON(websocket.MessageTypeMetrics, metrics)
 	}
 }
 

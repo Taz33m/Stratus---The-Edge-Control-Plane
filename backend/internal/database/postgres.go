@@ -58,6 +58,7 @@ func RunMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_services_region ON services(region)`,
 		`CREATE INDEX IF NOT EXISTS idx_services_status ON services(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_deployment_logs_service_id ON deployment_logs(service_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_deployment_logs_created_at ON deployment_logs(created_at DESC)`,
 	}
 
 	for _, migration := range migrations {

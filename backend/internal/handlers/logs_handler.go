@@ -20,8 +20,15 @@ func NewLogsHandler(db *sql.DB) *LogsHandler {
 func (h *LogsHandler) GetDeploymentLogs(c *gin.Context) {
 	limit := 50
 	if limitParam := c.Query("limit"); limitParam != "" {
-		if l, err := strconv.Atoi(limitParam); err == nil && l > 0 {
+		if l, err := strconv.Atoi(limitParam); err == nil && l > 0 && l <= 100 {
 			limit = l
+		}
+	}
+
+	offset := 0
+	if offsetParam := c.Query("offset"); offsetParam != "" {
+		if o, err := strconv.Atoi(offsetParam); err == nil && o >= 0 {
+			offset = o
 		}
 	}
 
@@ -30,10 +37,10 @@ func (h *LogsHandler) GetDeploymentLogs(c *gin.Context) {
 		FROM deployment_logs dl
 		LEFT JOIN services s ON dl.service_id = s.id
 		ORDER BY dl.created_at DESC
-		LIMIT $1
+		LIMIT $1 OFFSET $2
 	`
 
-	rows, err := h.db.Query(query, limit)
+	rows, err := h.db.Query(query, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
